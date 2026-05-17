@@ -96,9 +96,7 @@ fn make_single_q8k_request(layer: u32) -> Vec<u8> {
         body.extend_from_slice(&0.01f32.to_le_bytes());
     }
     // per-element qs (i8) — 256 elements per block, padded with zeros
-    for _ in 0..(256 * n_blocks as usize) {
-        body.push(0u8);
-    }
+    body.extend(std::iter::repeat_n(0u8, 256 * n_blocks as usize));
     body
 }
 
