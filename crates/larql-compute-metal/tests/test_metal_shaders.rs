@@ -1436,7 +1436,7 @@ fn full_pipeline_seq1_produces_nonzero() {
         moe_combined_output_norm: false,
         moe_outer_post_norm: None,
         kv_shared_source: None,
-            residual_multiplier: 1.0,
+        residual_multiplier: 1.0,
         ple_input_gate: None,
         ple_projection: None,
         ple_post_norm: None,
