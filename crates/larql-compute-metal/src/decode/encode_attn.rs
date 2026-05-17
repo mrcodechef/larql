@@ -58,10 +58,10 @@ pub(super) struct AttnBufs<'a> {
 pub(super) struct AttnDims {
     pub hidden: usize,
     pub layer_q_dim: usize,
-    pub uses_q4k: bool,
+    pub uses_kquant: bool,
     /// True iff the FFN side will run Q4_K family (selects the fused
     /// `residual_norm_store` path that mirrors the FFN's input dtype).
-    pub ffn_uses_q4k: bool,
+    pub ffn_uses_kquant: bool,
 }
 
 impl MetalBackend {
@@ -80,8 +80,8 @@ impl MetalBackend {
         let AttnDims {
             hidden,
             layer_q_dim,
-            uses_q4k,
-            ffn_uses_q4k,
+            uses_kquant,
+            ffn_uses_kquant,
         } = dims;
         let hidden_val = hidden as u32;
         // M2: extract per-layer params via the structured views.
@@ -434,7 +434,7 @@ impl MetalBackend {
         }
 
         // ── Step 5a: O projection ──
-        if uses_q4k {
+        if uses_kquant {
             use crate::stages::quant_matvec::Pipelines;
             let pipes = Pipelines {
                 q4kf_proj: Some(&self.attention.q4kf_proj_pipeline.state),
@@ -504,7 +504,7 @@ impl MetalBackend {
             } else {
                 bufs.post_attn_norm.clone()
             };
-            if use_fused_post_attn && ffn_uses_q4k {
+            if use_fused_post_attn && ffn_uses_kquant {
                 // Triple-fused: post_attn_norm + residual_norm + h_post_attn
                 // store in ONE dispatch.
                 enc.set_compute_pipeline_state(&self.norms.post_attn_residual_norm_store_pipeline);
@@ -537,7 +537,7 @@ impl MetalBackend {
                     eps,
                     norm_offset,
                 );
-                if ffn_uses_q4k {
+                if ffn_uses_kquant {
                     enc.set_compute_pipeline_state(&self.norms.residual_norm_store_pipeline);
                     enc.set_buffer(0, Some(bufs.h_buf), 0);
                     enc.set_buffer(1, Some(bufs.normed_scratch), 0);
@@ -576,7 +576,7 @@ impl MetalBackend {
                     );
                 }
             }
-        } else if ffn_uses_q4k {
+        } else if ffn_uses_kquant {
             enc.set_compute_pipeline_state(&self.norms.residual_norm_store_pipeline);
             enc.set_buffer(0, Some(bufs.h_buf), 0);
             enc.set_buffer(1, Some(bufs.o_out_buf), 0);

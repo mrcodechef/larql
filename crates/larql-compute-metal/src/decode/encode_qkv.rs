@@ -1,6 +1,6 @@
 //! Step 1 of the decode pipeline: input norm + fused Q/K/V projection.
 //!
-//! Two top-level paths gated on `uses_q4k`:
+//! Two top-level paths gated on `uses_kquant`:
 //!   - **Q4_K family** (Q4_K, Q6_K, Q4_KF) — RMS or LayerNorm into f32,
 //!     then a fused QKV shader keyed on the (wq.fmt, wk.fmt, wv.fmt)
 //!     triplet:
@@ -53,7 +53,7 @@ pub(super) struct QkvDims {
 }
 
 impl MetalBackend {
-    /// Encode input norm + fused QKV projection. `uses_q4k` selects the
+    /// Encode input norm + fused QKV projection. `uses_kquant` selects the
     /// top-level path; the layer's per-projection formats select the
     /// inner shader. Behaviour mirrors the inline form previously in
     /// `decode/mod.rs` byte-for-byte.
@@ -71,10 +71,10 @@ impl MetalBackend {
         layer: &FullPipelineLayer,
         bufs: QkvBufs<'_>,
         dims: QkvDims,
-        uses_q4k: bool,
+        uses_kquant: bool,
         input_already_normed: bool,
     ) {
-        if uses_q4k {
+        if uses_kquant {
             // Default path (since 2026-05-09): separate `rms_norm` dispatch
             // + non-fused `q4k_q6k_qkv_proj`. The fused alternative
             // (`q4k_q6k_qkv_proj_normed`) saves 1 dispatch/layer (~0.24

@@ -2109,7 +2109,7 @@ fn decode_token_with_post_norms_no_pre_ffn_norm_drives_fallback() {
     layer.post_attn_norm = &norm_w;
     layer.pre_ffn_norm = None; // <- triggers fallback at L505
     layer.post_ffn_norm = Some(&norm_w);
-    // Q4_K FFN gate so `ffn_uses_q4k` is true → exercises the
+    // Q4_K FFN gate so `ffn_uses_kquant` is true → exercises the
     // fused-post-attn + residual_norm_store path that consults
     // `pre_ffn_buf`.
     layer.gate.format = QuantFormat::Q4_K;

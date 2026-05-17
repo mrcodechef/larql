@@ -62,7 +62,7 @@ pub(super) struct FfnDims {
 
 impl MetalBackend {
     /// Encode the full FFN block (gate / up / activation / down) into
-    /// the encoder. `ffn_uses_q4k` selects the path; the function
+    /// the encoder. `ffn_uses_kquant` selects the path; the function
     /// returns the same `down_out` buffer the caller passed in via
     /// `bufs`. No commit/flush — the caller owns encoder lifecycle.
     #[allow(clippy::too_many_arguments)]
@@ -72,7 +72,7 @@ impl MetalBackend {
         layer: &FullPipelineLayer,
         bufs: FfnBufs<'_>,
         dims: FfnDims,
-        ffn_uses_q4k: bool,
+        ffn_uses_kquant: bool,
     ) {
         let FfnDims {
             hidden,
@@ -87,7 +87,7 @@ impl MetalBackend {
 
         if ffn_is_q4kf {
             self.encode_q4kf_ffn(enc, layer, &bufs, hidden, inter, hidden_val, inter_val);
-        } else if ffn_uses_q4k {
+        } else if ffn_uses_kquant {
             self.encode_q4k_ffn(
                 enc,
                 layer,
@@ -609,7 +609,7 @@ impl MetalBackend {
         layer: &FullPipelineLayer,
         bufs: &FfnBufs<'_>,
         dims: FfnDims,
-        ffn_uses_q4k: bool,
+        ffn_uses_kquant: bool,
     ) {
         let FfnDims { hidden, inter, .. } = dims;
         let inter_val = inter as u32;
@@ -646,7 +646,7 @@ impl MetalBackend {
                     MTLSize::new(q4kf::THREADS_PER_TG, 1, 1),
                 );
             }
-        } else if ffn_uses_q4k {
+        } else if ffn_uses_kquant {
             let rows = self.ffn.q4k_ffn_gate_up_8sg_pipeline.rows_per_tg;
             let tgs = self.ffn.q4k_ffn_gate_up_8sg_pipeline.threads_per_tg;
             if layer.is_gated() {
@@ -710,7 +710,7 @@ impl MetalBackend {
         layer: &FullPipelineLayer,
         bufs: &FfnBufs<'_>,
         dims: FfnDims,
-        ffn_uses_q4k: bool,
+        ffn_uses_kquant: bool,
     ) {
         let FfnDims {
             hidden,
@@ -748,7 +748,7 @@ impl MetalBackend {
                     MTLSize::new(q4kf::THREADS_PER_TG, 1, 1),
                 );
             }
-        } else if ffn_uses_q4k {
+        } else if ffn_uses_kquant {
             if layer.is_gated() {
                 let use_fused_q6k = self.decode_flags.fused_q6k_down
                     && layer.down.format == larql_compute::QuantFormat::Q6_K

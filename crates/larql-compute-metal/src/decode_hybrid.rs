@@ -48,7 +48,7 @@ impl MetalBackend {
         } else {
             layer_head_dim
         };
-        let uses_q4k = layer.wq.format.is_q4k_family();
+        let uses_kquant = layer.wq.format.is_kquant_family();
         let layer_q_dim = layer_num_q_heads * layer_head_dim;
         let window_size = layer.sliding_window as u32;
 
@@ -77,7 +77,7 @@ impl MetalBackend {
 
         let enc_a = cmd.new_compute_command_encoder();
 
-        if uses_q4k {
+        if uses_kquant {
             use crate::ops::full_pipeline::encode_rms_norm;
             let norm_f32_buf = self.bufs.output((hidden * 4) as u64);
             let total_rows = (q_dim + kv_dim + kv_dim) as u32;
@@ -290,7 +290,7 @@ impl MetalBackend {
         let enc_c = cmd.new_compute_command_encoder();
 
         // O projection
-        if uses_q4k {
+        if uses_kquant {
             let o_rows = hidden as u32;
             let o_k = layer_q_dim as u32;
             let o_out = self.bufs.output((hidden * 4) as u64);

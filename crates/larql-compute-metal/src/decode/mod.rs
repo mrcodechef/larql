@@ -286,7 +286,7 @@ impl MetalBackend {
             let layer_head_dim = layer.head_dim;
             let layer_num_q_heads = layer.num_q_heads;
             let layer_num_kv_heads = layer.num_kv_heads;
-            let uses_q4k = layer.wq.format.is_q4k_family();
+            let uses_kquant = layer.wq.format.is_kquant_family();
             let layer_q_dim = layer_num_q_heads * layer_head_dim;
             let layer_kv_dim = layer_num_kv_heads * layer_head_dim;
 
@@ -330,7 +330,7 @@ impl MetalBackend {
                     eps,
                     norm_offset,
                 },
-                uses_q4k,
+                uses_kquant,
                 prelayer_norm_active,
             );
 
@@ -366,12 +366,12 @@ impl MetalBackend {
                 encode_attn::AttnDims {
                     hidden,
                     layer_q_dim,
-                    uses_q4k,
-                    ffn_uses_q4k: layer.gate.format.is_q4k_family(),
+                    uses_kquant,
+                    ffn_uses_kquant: layer.gate.format.is_kquant_family(),
                 },
             );
             let new_h = if l % 2 == 0 { &h_a } else { &h_b };
-            let ffn_uses_q4k = layer.gate.format.is_q4k_family();
+            let ffn_uses_kquant = layer.gate.format.is_kquant_family();
 
             // ── Steps 6-7: FFN + post-FFN residual ──
             //
@@ -450,7 +450,7 @@ impl MetalBackend {
                 if stage_timing_split && !has_moe {
                     // Fine split: gate+up in one CB, act+down+residual in another.
                     // Step 6a: gate+up
-                    self.encode_ffn_gate_up_phase(&enc, layer, &ffn_bufs, ffn_dims, ffn_uses_q4k);
+                    self.encode_ffn_gate_up_phase(&enc, layer, &ffn_bufs, ffn_dims, ffn_uses_kquant);
                     enc.end_encoding();
                     cmd.commit();
                     cmd.wait_until_completed();
@@ -458,7 +458,7 @@ impl MetalBackend {
                     cmd = self.queue.new_command_buffer().to_owned();
                     enc = cmd.new_compute_command_encoder().to_owned();
                     // Step 6b + 7: activation+down + post-FFN residual
-                    self.encode_ffn_down_phase(&enc, layer, &ffn_bufs, ffn_dims, ffn_uses_q4k);
+                    self.encode_ffn_down_phase(&enc, layer, &ffn_bufs, ffn_dims, ffn_uses_kquant);
                     self.encode_post_ffn_residual(
                         &enc,
                         layer,
@@ -476,7 +476,7 @@ impl MetalBackend {
                     encoder_ended = false;
                 } else {
                     // Production path: whole FFN in one encoder block.
-                    self.encode_ffn_step(&enc, layer, ffn_bufs, ffn_dims, ffn_uses_q4k);
+                    self.encode_ffn_step(&enc, layer, ffn_bufs, ffn_dims, ffn_uses_kquant);
                     self.encode_post_ffn_residual(
                         &enc,
                         layer,
@@ -556,7 +556,7 @@ impl MetalBackend {
                         hidden,
                         inter,
                         inter_padded,
-                        ffn_uses_q4k,
+                        ffn_uses_kquant,
                         defer_ffn_for_split,
                         stage_timing_split,
                         layer_in_snapshot: layer_in_snapshot.as_deref(),
