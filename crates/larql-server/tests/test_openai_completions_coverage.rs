@@ -5,6 +5,21 @@
 //! prompt, echo+stream rejection, batched+stream rejection,
 //! infer_disabled rejection), the non-streaming buffered path, and
 //! the streaming SSE path.
+//!
+//! ## Why every success-path test drains the response body
+//!
+//! The buffered handler returns `Json(CompletionsResponse { … }).into_response()`.
+//! axum builds the wire body lazily — if a test only inspects
+//! `resp.status()` and drops the response without consuming
+//! `into_body()`, the response-serialisation tail of the handler
+//! never gets driven, which leaves ~50 lines of the OK branch
+//! uncovered. Pre-2026-05-20 the tests asserted
+//! `OK || is_server_error()` and dropped the response on the floor,
+//! which surfaced as completions.rs 70.34% on Ubuntu CI vs 86.85%
+//! on macOS — same test outcomes, different code reached by the
+//! llvm-cov runner. Helpers `capture_completion` + `capture_status`
+//! below now drain on every call site so the OK branch's
+//! coverage matches what callers actually exercise in production.
 
 mod common;
 
@@ -31,31 +46,16 @@ async fn post_completions(body: serde_json::Value) -> axum::http::Response<Body>
     resp
 }
 
-/// DIAGNOSTIC (temp 2026-05-20): consume the response body and dump
-/// status + body to stderr. Used to investigate the Ubuntu CI vs macOS
-/// completions.rs coverage divergence (CI 70.34% vs local 86.85% with
-/// identical test outcomes — the success-path lines aren't being hit
-/// on CI for reasons we can't see from `assert!(OK || is_server_error)`).
-/// Revert once the divergence is identified.
-async fn diag_capture(
-    label: &str,
-    resp: axum::http::Response<Body>,
-) -> (StatusCode, String) {
+/// Drain the response body so the handler's lazy `into_response()`
+/// serialisation actually runs (see the file-level note for why this
+/// matters for coverage). Returns `(status, body)` so callers can
+/// assert on the body shape too.
+async fn capture_completion(resp: axum::http::Response<Body>) -> (StatusCode, String) {
     let status = resp.status();
     let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
         .await
         .unwrap_or_default();
     let body_str = String::from_utf8_lossy(&body).into_owned();
-    eprintln!(
-        "[DIAG completions/{label}] status={} body_len={} body={}",
-        status,
-        body_str.len(),
-        if body_str.len() > 800 {
-            format!("{}…[truncated]", &body_str[..800])
-        } else {
-            body_str.clone()
-        },
-    );
     (status, body_str)
 }
 
@@ -67,11 +67,7 @@ async fn completions_non_streaming_single_prompt_returns_200() {
         "max_tokens": 4,
     }))
     .await;
-    // DIAGNOSTIC (2026-05-20): strict 200 + body dump. CI Ubuntu shows
-    // completions.rs at 70.34% line coverage vs 86.85% on macOS / Linux
-    // Docker (Rosetta) with identical test outcomes — make this assert
-    // strict so a failure surfaces the actual response body in CI logs.
-    let (status, body) = diag_capture("non_streaming_single_prompt", resp).await;
+    let (status, body) = capture_completion(resp).await;
     assert_eq!(
         status,
         StatusCode::OK,
@@ -132,8 +128,7 @@ async fn completions_echo_in_non_stream_runs_echo_branch() {
         "echo": true,
     }))
     .await;
-    // DIAGNOSTIC (2026-05-20): see completions_non_streaming_single_prompt.
-    let (status, body) = diag_capture("echo_non_stream", resp).await;
+    let (status, body) = capture_completion(resp).await;
     assert_eq!(
         status,
         StatusCode::OK,
@@ -149,8 +144,7 @@ async fn completions_batched_non_stream_runs_loop_branch() {
         "max_tokens": 2,
     }))
     .await;
-    // DIAGNOSTIC (2026-05-20).
-    let (status, body) = diag_capture("batched_non_stream", resp).await;
+    let (status, body) = capture_completion(resp).await;
     assert_eq!(
         status,
         StatusCode::OK,
@@ -227,8 +221,7 @@ async fn completions_with_sampling_params_runs_sampler_branches() {
         "presence_penalty": 0.1,
     }))
     .await;
-    // DIAGNOSTIC (2026-05-20).
-    let (status, body) = diag_capture("with_sampling_params", resp).await;
+    let (status, body) = capture_completion(resp).await;
     assert_eq!(
         status,
         StatusCode::OK,
@@ -249,8 +242,7 @@ async fn completions_with_stop_strings_runs_stop_check_branch() {
         "stop": ["x", " "],
     }))
     .await;
-    // DIAGNOSTIC (2026-05-20).
-    let (status, body) = diag_capture("with_stop_strings", resp).await;
+    let (status, body) = capture_completion(resp).await;
     assert_eq!(
         status,
         StatusCode::OK,
@@ -267,8 +259,7 @@ async fn completions_with_logprobs_runs_logprobs_branch() {
         "logprobs": 3,
     }))
     .await;
-    // DIAGNOSTIC (2026-05-20).
-    let (status, body) = diag_capture("with_logprobs", resp).await;
+    let (status, body) = capture_completion(resp).await;
     assert_eq!(
         status,
         StatusCode::OK,
